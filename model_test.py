@@ -8,6 +8,7 @@ import os
 import numpy as np
 import torch
 import pygame
+import random
 from dqn_model import DQNAgent, get_device
 from rl_env import DoodleJumpEnv
 import time
@@ -105,11 +106,31 @@ def test_model(agent, env, n_episodes=3):
     steps_list = []
     durations = []
     
+    # 使用时间戳作为基础种子，确保每次运行测试都有不同的初始种子
+    # 使用微秒级时间戳和进程ID的组合，增加随机性
+    base_seed = int(time.time() * 1000000) % (2**31)  # 使用微秒级时间戳
+    base_seed = (base_seed + os.getpid()) % (2**31)  # 加上进程ID增加随机性
+    
+    # 初始化随机数生成器（用于生成额外的随机性）
+    np.random.seed(base_seed)
+    random.seed(base_seed)
+    
     for episode in range(1, n_episodes + 1):
         print(f"\n回合 {episode}/{n_episodes} 进行中...")
         
-        # 重置环境
-        state, info = env.reset()
+        # 为每个回合生成不同的随机种子（基于基础种子和回合号）
+        # 使用一个较大的倍数确保不同回合的种子差异足够大
+        # 添加随机数增加变化，这样确保每次运行测试和每个回合都有不同的随机环境
+        episode_seed = (base_seed + episode * 10000 + np.random.randint(0, 10000)) % (2**31)
+        
+        # 先设置 numpy 和 Python 的随机种子，然后再重置环境
+        # 这样确保游戏中的所有随机操作都使用新种子
+        np.random.seed(episode_seed)
+        random.seed(episode_seed)
+        
+        # 重置环境，使用不同的随机种子
+        state, info = env.reset(seed=episode_seed)
+        
         score = 0
         step = 0
         episode_start_time = time.time()
