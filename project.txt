@@ -1,0 +1,386 @@
+doodle_jump_rl/
+├── game_env.py
+├── dqn_agent.py
+├── train.py
+└── requirements.txt
+
+
+
+requirements.txt
+pygame
+numpy
+torch
+gym
+
+
+游戏环境 (game_env.py)
+import pygame
+import random
+import numpy as np
+import gym
+from gym import spaces
+
+# --- 游戏常量 ---
+SCREEN_WIDTH = 400
+SCREEN_HEIGHT = 600
+GRAVITY = 0.5
+PLAYER_JUMP = -15
+PLAYER_SPEED = 7
+
+# --- 颜色 ---
+WHITE = (255, 255, 255)
+GREEN = (0, 255, 0)
+BLACK = (0, 0, 0)
+
+class Player(pygame.sprite.Sprite):
+    def __init__(self):
+        super().__init__()
+        self.image = pygame.Surface([40, 50])
+        self.image.fill(GREEN)
+        self.rect = self.image.get_rect()
+        self.rect.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT - 50)
+        self.vx = 0
+        self.vy = 0
+
+    def update(self):
+        self.vy += GRAVITY
+        self.rect.y += self.vy
+        self.rect.x += self.vx
+
+        # 左右穿墙
+        if self.rect.left > SCREEN_WIDTH:
+            self.rect.right = 0
+        if self.rect.right < 0:
+            self.rect.left = SCREEN_WIDTH
+
+    def jump(self):
+        self.vy = PLAYER_JUMP
+
+class Platform(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        super().__init__()
+        self.image = pygame.Surface([80, 20])
+        self.image.fill(GREEN)
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+
+class DoodleJumpEnv(gym.Env):
+    def __init__(self):
+        super(DoodleJumpEnv, self).__init__()
+        pygame.init()
+
+        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+        pygame.display.set_caption("Doodle Jump RL")
+        self.clock = pygame.time.Clock()
+
+        # 动作空间: 0=左, 1=不动, 2=右
+        self.action_space = spaces.Discrete(3)
+        
+        # 状态空间: [player_x, player_vy, p1_dx, p1_dy, p2_dx, p2_dy, p3_dx, p3_dy, p4_dx, p4_dy]
+        # 玩家x坐标, 玩家y速度, 4个最近平台的相对坐标(dx, dy)
+        # 我们对值进行归一化，所以范围是 -1 到 1
+        low = np.array([-1.0] * 10)
+        high = np.array([1.0] * 10)
+        self.observation_space = spaces.Box(low, high, dtype=np.float32)
+
+        self.reset()
+
+    def _generate_platforms(self, num):
+        self.platforms = pygame.sprite.Group()
+        for _ in range(num):
+            p = Platform(random.randrange(0, SCREEN_WIDTH - 80), random.randrange(0, SCREEN_HEIGHT - 50))
+            self.platforms.add(p)
+        # 确保初始位置有平台
+        start_platform = Platform(self.player.rect.centerx - 40, self.player.rect.bottom)
+        self.platforms.add(start_platform)
+
+
+    def _get_state(self):
+        # 归一化玩家状态
+        player_x = (self.player.rect.centerx / (SCREEN_WIDTH / 2)) - 1
+        player_vy = self.player.vy / 15.0 # 假设15是最大速度
+        
+        state = [player_x, player_vy]
+
+        # 获取最近的4个平台
+        sorted_platforms = sorted(self.platforms.sprites(), key=lambda p: np.hypot(p.rect.centerx - self.player.rect.centerx, p.rect.centery - self.player.rect.centery))
+        
+        for i in range(4):
+            if i < len(sorted_platforms):
+                p = sorted_platforms[i]
+                dx = (p.rect.centerx - self.player.rect.centerx) / (SCREEN_WIDTH / 2)
+                dy = (p.rect.centery - self.player.rect.centery) / (SCREEN_HEIGHT / 2)
+                state.extend([dx, dy])
+            else:
+                # 如果平台不够，用0填充
+                state.extend([0, 0])
+        
+        return np.array(state, dtype=np.float32)
+
+    def reset(self):
+        self.player = Player()
+        self._generate_platforms(10)
+        self.score = 0
+        self.max_height = self.player.rect.y
+        self.all_sprites = pygame.sprite.Group()
+        self.all_sprites.add(self.player)
+        self.all_sprites.add(self.platforms)
+        return self._get_state()
+
+    def step(self, action):
+        # 1. 执行动作
+        if action == 0:
+            self.player.vx = -PLAYER_SPEED
+        elif action == 1:
+            self.player.vx = 0
+        elif action == 2:
+            self.player.vx = PLAYER_SPEED
+        
+        # 2. 更新游戏状态
+        self.player.update()
+
+        # 3. 碰撞检测
+        # 只有在下落时才检测碰撞
+        if self.player.vy > 0:
+            hits = pygame.sprite.spritecollide(self.player, self.platforms, False)
+            if hits:
+                self.player.jump()
+        
+        # 4. 屏幕滚动
+        if self.player.rect.top <= SCREEN_HEIGHT / 4:
+            scroll = abs(self.player.vy)
+            self.player.rect.y += scroll
+            for plat in self.platforms:
+                plat.rect.y += scroll
+                if plat.rect.top >= SCREEN_HEIGHT:
+                    plat.kill()
+                    self.score += 10 # 平台消失加分
+
+        # 5. 生成新平台
+        while len(self.platforms) < 10:
+            p = Platform(random.randrange(0, SCREEN_WIDTH - 80), random.randrange(-50, 0))
+            self.platforms.add(p)
+            self.all_sprites.add(p)
+        
+        # 6. 计算奖励
+        reward = 0
+        # 高度奖励
+        current_height = self.player.rect.y
+        if current_height < self.max_height:
+             reward += (self.max_height - current_height) * 0.01 # 高度增加给小奖励
+             self.max_height = current_height
+        
+        # 存活奖励
+        reward += 0.1 
+
+        # 7. 检查游戏是否结束
+        done = False
+        if self.player.rect.top > SCREEN_HEIGHT:
+            reward = -100
+            done = True
+        
+        return self._get_state(), reward, done, {}
+
+    def render(self, mode='human'):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+
+        self.screen.fill(BLACK)
+        self.all_sprites.update() # 确保渲染前更新位置
+        self.all_sprites.draw(self.screen)
+        
+        # 显示分数
+        font = pygame.font.Font(None, 36)
+        text = font.render(f"Score: {self.score}", True, WHITE)
+        self.screen.blit(text, (10, 10))
+
+        pygame.display.flip()
+        self.clock.tick(30)
+
+    def close(self):
+        pygame.quit()
+
+
+
+
+DQN 智能体 (dqn_agent.py)
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+import numpy as np
+import random
+from collections import namedtuple, deque
+
+# 超参数
+BUFFER_SIZE = int(1e5)  # 经验回放缓冲区大小
+BATCH_SIZE = 64         # mini-batch大小
+GAMMA = 0.99            # 折扣因子
+TAU = 1e-3              # 软更新目标网络参数
+LR = 5e-4               # 学习率
+UPDATE_EVERY = 4        # 每隔多少步更新一次网络
+
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+class QNetwork(nn.Module):
+    def __init__(self, state_size, action_size, seed):
+        super(QNetwork, self).__init__()
+        self.seed = torch.manual_seed(seed)
+        self.fc1 = nn.Linear(state_size, 64)
+        self.fc2 = nn.Linear(64, 64)
+        self.fc3 = nn.Linear(64, action_size)
+
+    def forward(self, state):
+        x = F.relu(self.fc1(state))
+        x = F.relu(self.fc2(x))
+        return self.fc3(x)
+
+class DQNAgent():
+    def __init__(self, state_size, action_size, seed):
+        self.state_size = state_size
+        self.action_size = action_size
+        self.seed = random.seed(seed)
+
+        self.qnetwork_local = QNetwork(state_size, action_size, seed).to(device)
+        self.qnetwork_target = QNetwork(state_size, action_size, seed).to(device)
+        self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=LR)
+
+        self.memory = ReplayBuffer(action_size, BUFFER_SIZE, BATCH_SIZE, seed)
+        self.t_step = 0
+
+    def step(self, state, action, reward, next_state, done):
+        self.memory.add(state, action, reward, next_state, done)
+        self.t_step = (self.t_step + 1) % UPDATE_EVERY
+        if self.t_step == 0:
+            if len(self.memory) > BATCH_SIZE:
+                experiences = self.memory.sample()
+                self.learn(experiences, GAMMA)
+
+    def act(self, state, eps=0.):
+        state = torch.from_numpy(state).float().unsqueeze(0).to(device)
+        self.qnetwork_local.eval()
+        with torch.no_grad():
+            action_values = self.qnetwork_local(state)
+        self.qnetwork_local.train()
+
+        if random.random() > eps:
+            return np.argmax(action_values.cpu().data.numpy())
+        else:
+            return random.choice(np.arange(self.action_size))
+
+    def learn(self, experiences, gamma):
+        states, actions, rewards, next_states, dones = experiences
+
+        Q_targets_next = self.qnetwork_target(next_states).detach().max(1)[0].unsqueeze(1)
+        Q_targets = rewards + (gamma * Q_targets_next * (1 - dones))
+        Q_expected = self.qnetwork_local(states).gather(1, actions)
+
+        loss = F.mse_loss(Q_expected, Q_targets)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        self.soft_update(self.qnetwork_local, self.qnetwork_target, TAU)
+
+    def soft_update(self, local_model, target_model, tau):
+        for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
+            target_param.data.copy_(tau * local_param.data + (1.0 - tau) * target_param.data)
+
+
+class ReplayBuffer:
+    def __init__(self, action_size, buffer_size, batch_size, seed):
+        self.action_size = action_size
+        self.memory = deque(maxlen=buffer_size)
+        self.batch_size = batch_size
+        self.experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done"])
+        self.seed = random.seed(seed)
+
+    def add(self, state, action, reward, next_state, done):
+        e = self.experience(state, action, reward, next_state, done)
+        self.memory.append(e)
+
+    def sample(self):
+        experiences = random.sample(self.memory, k=self.batch_size)
+        states = torch.from_numpy(np.vstack([e.state for e in experiences if e is not None])).float().to(device)
+        actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).long().to(device)
+        rewards = torch.from_numpy(np.vstack([e.reward for e in experiences if e is not None])).float().to(device)
+        next_states = torch.from_numpy(np.vstack([e.next_state for e in experiences if e is not None])).float().to(device)
+        dones = torch.from_numpy(np.vstack([e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(device)
+        return (states, actions, rewards, next_states, dones)
+
+    def __len__(self):
+        return len(self.memory)
+
+
+
+训练脚本 (train.py)
+from game_env import DoodleJumpEnv
+from dqn_agent import DQNAgent
+import torch
+from collections import deque
+import matplotlib.pyplot as plt
+
+# --- 实例化环境和智能体 ---
+env = DoodleJumpEnv()
+# 确保state_size和action_size与环境匹配
+agent = DQNAgent(state_size=env.observation_space.shape[0], action_size=env.action_space.n, seed=0)
+
+def train(n_episodes=2000, max_t=1000, eps_start=1.0, eps_end=0.01, eps_decay=0.995):
+    """训练DQN智能体"""
+    scores = []                        # 记录每回合的分数
+    scores_window = deque(maxlen=100)  # 只保留最近100个分数
+    eps = eps_start                    # 初始化epsilon
+    
+    for i_episode in range(1, n_episodes + 1):
+        state = env.reset()
+        score = 0
+        for t in range(max_t):
+            action = agent.act(state, eps)
+            next_state, reward, done, _ = env.step(action)
+            agent.step(state, action, reward, next_state, done)
+            state = next_state
+            score += reward
+            
+            # --- 可视化 ---
+            # 如果想看AI玩，取消下面这行注释。但会拖慢训练速度！
+            # env.render()
+            
+            if done:
+                break
+        
+        scores_window.append(score)
+        scores.append(score)
+        eps = max(eps_end, eps_decay * eps) # 衰减epsilon
+        
+        print(f'\rEpisode {i_episode}\tAverage Score: {np.mean(scores_window):.2f}', end="")
+        if i_episode % 100 == 0:
+            print(f'\rEpisode {i_episode}\tAverage Score: {np.mean(scores_window):.2f}')
+        
+        # 每200回合保存一次模型
+        if i_episode % 200 == 0:
+            torch.save(agent.qnetwork_local.state_dict(), f'checkpoint_doodle_{i_episode}.pth')
+            
+    return scores
+
+if __name__ == '__main__':
+    scores = train()
+
+    # 绘制分数变化图
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    plt.plot(np.arange(len(scores)), scores)
+    plt.ylabel('Score')
+    plt.xlabel('Episode #')
+    plt.show()
+
+    env.close()
+
+
+创建项目文件夹: 创建一个名为 doodle_jump_rl 的文件夹。
+创建文件: 将上述四个部分的代码分别保存到对应的文件中。
+安装依赖: 在该文件夹中打开终端，运行 pip install -r requirements.txt。
+开始训练: 在终端中运行 python train.py。
+观察结果: 你会看到终端开始打印每回合的平均得分。训练结束后，会弹出一个图表，显示分数的增长曲线。如果曲线呈上升趋势，恭喜你，你的AI正在学习！
+为了看到AI玩游戏： 在train.py的训练循环中，取消env.render()的注释。但这会极大地拖慢训练速度，建议在训练几百个回合、模型有一定效果后再打开来观察。
