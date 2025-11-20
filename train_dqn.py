@@ -15,7 +15,7 @@ import os
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
 # 训练参数
-N_EPISODES = 900  # 训练回合数
+N_EPISODES = 600  # 训练回合数
 MAX_STEPS = 20000  # 每个回合最大步数
 SCORE_WINDOW = 100  # 计算平均分数的窗口大小
 SAVE_INTERVAL = 100  # 每隔多少回合保存一次模型
