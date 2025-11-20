@@ -6,11 +6,21 @@ from settings import *
 from sprites import Player, Platform
 
 class Game:
-    def __init__(self):
+    def __init__(self, enable_sound=True):
+        """
+        初始化游戏
+        
+        Args:
+            enable_sound: 是否启用音效（训练时建议设为False以提高性能）
+        """
+        self.enable_sound = enable_sound
+        
         # !! 初始化 Pygame 和 Mixer !!
-        pygame.mixer.pre_init(44100, -16, 2, 512) # 优化音效设置
+        if enable_sound:
+            pygame.mixer.pre_init(44100, -16, 2, 512) # 优化音效设置
         pygame.init()
-        pygame.mixer.init() # 正式启动音效模块
+        if enable_sound:
+            pygame.mixer.init() # 正式启动音效模块
         
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         pygame.display.set_caption(TITLE)
@@ -83,39 +93,44 @@ class Game:
         if not self.obstacle_images:
             print("✗ 未找到障碍物图片，将使用默认红色方块")
 
-        # 加载奖励音效列表
+        # 加载奖励音效列表（仅在启用音效时加载）
         self.reward_sounds = []
-        for snd_path in REWARD_SOUNDS_LIST:
-            if os.path.exists(snd_path):
-                try:
-                    self.reward_sounds.append(pygame.mixer.Sound(snd_path))
-                    print(f"✓ 已加载奖励音效: {snd_path}")
-                except Exception as e:
-                    print(f"✗ 加载奖励音效失败: {snd_path}, {e}")
-        if not self.reward_sounds:
-            print("✗ 未找到奖励音效文件")
+        if self.enable_sound:
+            for snd_path in REWARD_SOUNDS_LIST:
+                if os.path.exists(snd_path):
+                    try:
+                        self.reward_sounds.append(pygame.mixer.Sound(snd_path))
+                        print(f"✓ 已加载奖励音效: {snd_path}")
+                    except Exception as e:
+                        print(f"✗ 加载奖励音效失败: {snd_path}, {e}")
+            if not self.reward_sounds:
+                print("✗ 未找到奖励音效文件")
+        else:
+            print("音效已禁用，跳过音效加载")
 
-        # 加载游戏结束音效
+        # 加载游戏结束音效（仅在启用音效时加载）
         self.game_over_sound = None
-        if os.path.exists(GAME_OVER_SOUND):
-            try:
-                self.game_over_sound = pygame.mixer.Sound(GAME_OVER_SOUND)
-                print(f"✓ 已加载游戏结束音效: {GAME_OVER_SOUND}")
-            except Exception as e:
-                print(f"✗ 加载游戏结束音效失败: {GAME_OVER_SOUND}, {e}")
-        else:
-            print(f"✗ 游戏结束音效不存在: {GAME_OVER_SOUND}")
-            
-        # 加载里程碑音效
+        if self.enable_sound:
+            if os.path.exists(GAME_OVER_SOUND):
+                try:
+                    self.game_over_sound = pygame.mixer.Sound(GAME_OVER_SOUND)
+                    print(f"✓ 已加载游戏结束音效: {GAME_OVER_SOUND}")
+                except Exception as e:
+                    print(f"✗ 加载游戏结束音效失败: {GAME_OVER_SOUND}, {e}")
+            else:
+                print(f"✗ 游戏结束音效不存在: {GAME_OVER_SOUND}")
+
+        # 加载里程碑音效（仅在启用音效时加载）
         self.milestone_sound = None
-        if os.path.exists(MILESTONE_SOUND):
-            try:
-                self.milestone_sound = pygame.mixer.Sound(MILESTONE_SOUND)
-                print(f"✓ 已加载里程碑音效: {MILESTONE_SOUND}")
-            except Exception as e:
-                print(f"✗ 加载里程碑音效失败: {MILESTONE_SOUND}, {e}")
-        else:
-            print(f"✗ 里程碑音效不存在: {MILESTONE_SOUND}")
+        if self.enable_sound:
+            if os.path.exists(MILESTONE_SOUND):
+                try:
+                    self.milestone_sound = pygame.mixer.Sound(MILESTONE_SOUND)
+                    print(f"✓ 已加载里程碑音效: {MILESTONE_SOUND}")
+                except Exception as e:
+                    print(f"✗ 加载里程碑音效失败: {MILESTONE_SOUND}, {e}")
+            else:
+                print(f"✗ 里程碑音效不存在: {MILESTONE_SOUND}")
         
         print("资源加载完成！")
 
@@ -775,7 +790,7 @@ class Game:
                     self.playing = False
                     self.running = False
                     # !! 触发：播放失败音效 !!
-                    if self.game_over_sound:
+                    if self.enable_sound and self.game_over_sound:
                         try:
                             self.game_over_sound.play()
                         except:
@@ -787,7 +802,7 @@ class Game:
                     if hits[0].type == 'boost':
                         self.player.vel.y = -PLAYER_JUMP * 1.5 # 强力跳跃
                         # !! 触发：随机播放奖励音效 !!
-                        if self.reward_sounds:
+                        if self.enable_sound and self.reward_sounds:
                             try:
                                 random.choice(self.reward_sounds).play()
                             except:
@@ -806,8 +821,11 @@ class Game:
             
             # !! 触发：检查是否达到分数里程碑 !!
             if old_score < self.next_score_milestone and self.score >= self.next_score_milestone:
-                if self.milestone_sound:
-                    self.milestone_sound.play()
+                if self.enable_sound and self.milestone_sound:
+                    try:
+                        self.milestone_sound.play()
+                    except:
+                        pass  # 无头模式下可能无法播放音效
                 self.next_score_milestone += SCORE_MILESTONE_TARGET # 设置下一个目标 (2000, 3000...)
             
             for plat in self.platforms:
@@ -820,8 +838,11 @@ class Game:
             # 确保失败音效只播一次
             if self.running: 
                 # !! 触发：播放失败音效 !!
-                if self.game_over_sound:
-                    self.game_over_sound.play()
+                if self.enable_sound and self.game_over_sound:
+                    try:
+                        self.game_over_sound.play()
+                    except:
+                        pass  # 无头模式下可能无法播放音效
             
             self.playing = False
             self.running = False
