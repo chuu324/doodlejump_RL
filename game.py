@@ -959,9 +959,9 @@ class Game:
         # 如果screen为None（无头模式），跳过绘制
         if self.screen is None:
             return
-        self.screen.fill(BLACK)
+        self.screen.fill(WHITE)
         self.all_sprites.draw(self.screen)
-        score_text = self.font.render(f"Score: {self.score}", True, WHITE)
+        score_text = self.font.render(f"Score: {self.score}", True, BLACK)
         self.screen.blit(score_text, (10, 10))
         pygame.display.flip()
 
