@@ -45,28 +45,59 @@ PLAYER_IMG_PATH = 'assets/player.png'
 
 # 普通平台 
 PLATFORM_NORMAL_IMGS = [
-    'assets/platform_blue1.png',
-    'assets/platform_blue2.png',
-    'assets/platform_cloud.png'
+    'assets/platform1.png',
+    'assets/platform2.png',
+    'assets/platform3.png',
+    'assets/platform4.png',
+    'assets/platform4.png',
+    'assets/platform5.png',
+    'assets/platform6.png',
+    'assets/platform7.png',
+    'assets/platform8.png',
+    'assets/platform9.png',
+    'assets/platform10.png',
+    'assets/platform11.png',
+    'assets/platform12.png',
+    'assets/platform13.png',
+    'assets/platform14.png',
+    'assets/platform15.png',
+    'assets/platform16.png',
+    'assets/platform17.png',
+    'assets/platform18.png',
+    'assets/platform19.png',
+    'assets/platform20.png'
 ]
 
 # 奖励平台 
 REWARD_IMGS_LIST = [
-    'assets/reward_spring1.png',
-    'assets/reward_spring_yellow.png'
+    'assets/reward1.png',
+    'assets/reward2.png',
+    'assets/reward3.png',
+    'assets/reward4.png'
 ]
 
 # 障碍平台 
 OBSTACLE_IMGS_LIST = [
-    'assets/obstacle_monster1.png',
-    'assets/obstacle_monster_broken.png'
+    'assets/obstacle_1.png',
+    'assets/obstacle_2.png',
+    'assets/obstacle_3.png',
+    'assets/obstacle_4.png',
+    'assets/obstacle_5.png',
+    'assets/obstacle_6.png',
+    'assets/obstacle_7.png',
+    'assets/obstacle_8.png',
+    'assets/obstacle_9.png',
+    'assets/obstacle_10.png',
+    'assets/obstacle_11.png',
+    'assets/obstacle_12.png',
+    'assets/obstacle_13.png'
 ]
 
 # 奖励音效 
 REWARD_SOUNDS_LIST = [
     'assets/reward1.wav',
     'assets/reward2.wav',
-    'assets/powerup.wav'
+    'assets/reward3.wav'
 ]
 
 # 游戏结束/失败音效 (单个)
