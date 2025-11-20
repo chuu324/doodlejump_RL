@@ -1,9 +1,8 @@
 import pygame
-import imageio
-import numpy as np
 from game import Game
+from model_test import find_model_files, display_model_list, load_model, test_model, display_results
 from rl_env import DoodleJumpEnv
-import gymnasium as gym
+import os
 
 def run_manual_play():
     """运行手动游戏模式"""
@@ -21,144 +20,110 @@ def run_manual_play():
     g.run_manual()
     pygame.quit()
 
-def run_rl_agent(agent, env, steps=1000, record_path=None):
-    """
-    运行一个RL智能体 (或随机智能体)
-    agent: 'random' 或一个DQNAgent实例
-    env: DoodleJumpEnv 实例
-    steps: 运行多少步
-    record_path: (可选) 视频保存路径
-    """
+def run_model_test():
+    """运行模型测试功能（从models文件夹中选择模型进行测试）"""
+    print("=" * 60)
+    print("DQN模型测试工具")
+    print("=" * 60)
     
-    if record_path:
-        print(f"准备录制视频: {record_path}")
-        # 使用 imageio 开始录制
-        writer = imageio.get_writer(record_path, fps=env.metadata["render_fps"])
+    # 1. 查找模型文件
+    model_files = find_model_files()
     
-    obs, info = env.reset()
-    terminated = False
+    if not model_files:
+        print("错误: 未找到任何模型文件!")
+        print("请确保 models 目录中存在 .pth 模型文件")
+        return
     
-    for step in range(steps):
-        if terminated:
-            print(f"游戏结束，总分: {info['score']}")
-            obs, info = env.reset()
-            terminated = False
+    # 2. 显示模型列表
+    display_model_list(model_files)
+    
+    # 3. 让用户选择模型
+    while True:
+        try:
+            choice = input(f"\n请选择要测试的模型 (1-{len(model_files)}, 输入 'q' 退出): ").strip()
             
-        # 1. 获取动作
-        if agent == 'random':
-            # 随机智能体 (对比视频 "之前")
-            action = env.action_space.sample()
-        elif hasattr(agent, 'act'):
-            # DQN智能体
-            action = agent.act(obs, training=False)  # 测试模式，不使用探索
-        else:
-            # 未知类型，使用随机动作
-            print("警告: 未知的agent类型, 使用随机动作代替。")
-            action = env.action_space.sample() 
-
-        # 2. 执行动作
-        obs, reward, terminated, truncated, info = env.step(action)
-        
-        # 3. 录制视频帧
-        if record_path:
-            # 获取RGB图像数据并写入
-            rgb_frame = env.render()
-            writer.append_data(rgb_frame)
+            if choice.lower() == 'q':
+                print("退出测试")
+                return
             
-        # 如果是 human 模式，需要额外处理事件
-        if env.render_mode == "human":
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    terminated = True
+            choice_idx = int(choice) - 1
+            if 0 <= choice_idx < len(model_files):
+                selected_model = model_files[choice_idx]
+                break
+            else:
+                print(f"错误: 请输入 1-{len(model_files)} 之间的数字")
+        except ValueError:
+            print("错误: 请输入有效的数字或 'q' 退出")
+        except KeyboardInterrupt:
+            print("\n\n测试取消")
+            return
+    
+    # 4. 获取测试次数
+    while True:
+        try:
+            n_episodes_input = input("\n请输入测试次数 (默认 3, 按回车使用默认值): ").strip()
+            
+            if n_episodes_input == '':
+                n_episodes = 3
+            else:
+                n_episodes = int(n_episodes_input)
+                if n_episodes <= 0:
+                    print("错误: 测试次数必须大于 0")
+                    continue
+            
+            break
+        except ValueError:
+            print("错误: 请输入有效的数字")
+        except KeyboardInterrupt:
+            print("\n\n测试取消")
+            return
+    
+    # 5. 创建环境（可视化模式）
+    print("\n正在创建游戏环境（可视化模式）...")
+    env = DoodleJumpEnv(render_mode='human')
+    
+    # 获取状态和动作空间大小
+    state_size = env.observation_space.shape[0]  # 27
+    action_size = env.action_space.n  # 3
+    
+    # 6. 加载模型
+    print(f"正在加载模型: {os.path.basename(selected_model)}")
+    agent = load_model(selected_model, state_size=state_size, action_size=action_size)
+    
+    if agent is None:
+        print("错误: 无法加载模型")
+        env.close()
+        return
+    
+    print("✓ 模型加载成功")
+    
+    # 7. 测试模型
+    try:
+        results = test_model(agent, env, n_episodes=n_episodes)
         
-    print("运行结束。")
-    if record_path:
-        writer.close()
-        print(f"视频已保存至: {record_path}")
-    env.close()
+        # 8. 显示结果
+        display_results(results, os.path.basename(selected_model), n_episodes)
+        
+    except KeyboardInterrupt:
+        print("\n\n测试被用户中断")
+    except Exception as e:
+        print(f"\n测试过程中出错: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        env.close()
 
 
 if __name__ == "__main__":
     print("请选择运行模式:")
     print("1: 手动游戏 (Human Play)")
-    print("2: 录制 '强化学习前' (随机Agent) 对比视频 (before_rl.mp4)")
-    print("3: 录制 '强化学习后' (训练好的DQN Agent) 对比视频 (after_rl.mp4)")
-    print("4: 运行RL环境 (Human模式，用于调试)")
-    print("5: 使用训练好的DQN模型玩游戏 (Human模式)")
+    print("2: 测试DQN模型 (从models文件夹中选择模型)")
     
-    choice = input("输入选项 (1/2/3/4/5): ")
+    choice = input("输入选项 (1/2): ")
 
     if choice == '1':
         run_manual_play()
-        
     elif choice == '2':
-        print("录制 '强化学习前' 视频...")
-        # 'rgb_array' 模式在后台渲染，速度快，用于录制
-        env = DoodleJumpEnv(render_mode='rgb_array')
-        run_rl_agent(agent='random', env=env, steps=2000, record_path='before_rl.mp4')
-        
-    elif choice == '3':
-        print("录制 '强化学习后' 视频...")
-        # 加载训练好的DQN模型
-        try:
-            from dqn_model import DQNAgent
-            import os
-            
-            model_path = "models/dqn_best.pth"
-            if not os.path.exists(model_path):
-                model_path = "models/dqn_checkpoint.pth"
-            
-            if os.path.exists(model_path):
-                env = DoodleJumpEnv(render_mode='rgb_array')
-                state_size = env.observation_space.shape[0]
-                action_size = env.action_space.n
-                trained_agent = DQNAgent(state_size=state_size, action_size=action_size)
-                trained_agent.load(model_path)
-                trained_agent.epsilon = 0.0  # 测试时使用贪婪策略
-                print(f"已加载模型: {model_path}")
-                run_rl_agent(agent=trained_agent, env=env, steps=2000, record_path='after_rl.mp4')
-            else:
-                print(f"错误: 找不到模型文件 {model_path}")
-                print("请先运行 train_dqn.py 训练模型")
-        except ImportError:
-            print("错误: 无法导入DQNAgent，请确保dqn_model.py存在")
-        except Exception as e:
-            print(f"错误: {e}")
-
-    elif choice == '4':
-        print("运行RL环境 (Human模式)...")
-        # 'human' 模式会弹出一个窗口
-        env = DoodleJumpEnv(render_mode='human')
-        # 用随机Agent跑
-        run_rl_agent(agent='random', env=env, steps=5000)
-    
-    elif choice == '5':
-        print("使用训练好的DQN模型玩游戏...")
-        try:
-            from dqn_model import DQNAgent
-            import os
-            
-            model_path = "models/dqn_best.pth"
-            if not os.path.exists(model_path):
-                model_path = "models/dqn_checkpoint.pth"
-            
-            if os.path.exists(model_path):
-                env = DoodleJumpEnv(render_mode='human')
-                state_size = env.observation_space.shape[0]
-                action_size = env.action_space.n
-                trained_agent = DQNAgent(state_size=state_size, action_size=action_size)
-                trained_agent.load(model_path)
-                trained_agent.epsilon = 0.0  # 测试时使用贪婪策略
-                print(f"已加载模型: {model_path}")
-                print("按关闭窗口退出")
-                run_rl_agent(agent=trained_agent, env=env, steps=10000)
-            else:
-                print(f"错误: 找不到模型文件 {model_path}")
-                print("请先运行 train_dqn.py 训练模型")
-        except ImportError:
-            print("错误: 无法导入DQNAgent，请确保dqn_model.py存在")
-        except Exception as e:
-            print(f"错误: {e}")
-        
+        run_model_test()
     else:
         print("无效选项。")
